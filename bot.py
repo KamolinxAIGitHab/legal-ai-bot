@@ -11,6 +11,12 @@ CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
 client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
+WAITING_MSGS = {
+    "lang_uz_cyr": "⏳ Жавоб тайёрланмоқда...",
+    "lang_uz_lat": "⏳ Javob tayyorlanmoqda...",
+    "lang_ru": "⏳ Ответ готовится...",
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
@@ -47,7 +53,8 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         system = "Вы эксперт по государственным закупкам и законодательству Узбекистана. Отвечайте на русском языке."
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    waiting_msg = await update.message.reply_text(WAITING_MSGS.get(lang, WAITING_MSGS["lang_uz_cyr"]))
 
     try:
         message = client.messages.create(
@@ -57,9 +64,9 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages=[{"role": "user", "content": question}]
         )
         answer = message.content[0].text
-        await update.message.reply_text(f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.")
+        await waiting_msg.edit_text(f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.")
     except Exception as e:
-        await update.message.reply_text("❌ Хато юз берди. Илтимос, қайта уриниб кўринг.")
+        await waiting_msg.edit_text("❌ Хато юз берди. Илтимос, қайта уриниб кўринг.")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
