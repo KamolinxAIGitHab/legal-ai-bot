@@ -1,88 +1,67 @@
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ContextTypes, filters,
 )
+import anthropic
 
-TOKEN = "8498913508:AAE_1SUaaT253uPnqNksryg1A5VVx-tbZww"
+TOKEN = os.environ.get("TOKEN")
+CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
+client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
-        [InlineKeyboardButton("Oʻzbekcha (lotin)", callback_data="lang_uz_lat")],
+        [InlineKeyboardButton("O'zbekcha (lotin)", callback_data="lang_uz_lat")],
         [InlineKeyboardButton("Русский", callback_data="lang_ru")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
-        "Илтимос, тилни танланг / Пожалуйста, выберите язык:",
-        reply_markup=reply_markup,
+        "Илтимос, тилни танланг:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
-
 
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     context.user_data["lang"] = query.data
-
     await query.edit_message_text(
-        "Раҳмат. Энди саволингизни ёзинг.\n\n"
-        "⚠️ Эслатма: жавоблар умумий ва таълимий мақсадда."
+        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
     )
-
 
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = context.user_data.get("lang")
+    lang = context.user_data.get("lang", "lang_uz_cyr")
+    question = update.message.text
 
-    if not lang:
-        await update.message.reply_text("Илтимос, аввал /start босиб тилни танланг.")
-        return
+    if lang == "lang_uz_cyr":
+        system = "Сиз Ўзбекистон давлат харидлари ва қонунчилик бўйича мутахассиссиз. Ўзбек тилида кирилл алифбосида жавоб беринг."
+    elif lang == "lang_uz_lat":
+        system = "Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz. O'zbek tilida lotin alifbosida javob bering."
+    else:
+        system = "Вы эксперт по государственным закупкам и законодательству Узбекистана. Отвечайте на русском языке."
 
-    context.user_data["question"] = update.message.text
+    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
 
-    keyboard = [
-        [InlineKeyboardButton("🇺🇿 Ўзбекистон", callback_data="jur_uz")],
-        [InlineKeyboardButton("🌍 Бошқа давлат", callback_data="jur_other")],
-        [InlineKeyboardButton("📚 Умумий маълумот", callback_data="jur_general")],
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "Саволингиз қайси мамлакат қонунчилигига тегишли?",
-        reply_markup=reply_markup,
-    )
-
-
-async def jurisdiction_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    context.user_data["jurisdiction"] = query.data
-
-    await query.edit_message_text(
-        "Раҳмат. Саволингиз қабул қилинди.\n\n"
-        "Жавоб умумий ва таълимий мақсадда тайёрланади."
-    )
-
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            system=system,
+            messages=[{"role": "user", "content": question}]
+        )
+        answer = message.content[0].text
+        await update.message.reply_text(f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.")
+    except Exception as e:
+        await update.message.reply_text("❌ Хато юз берди. Илтимос, қайта уриниб кўринг.")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(language_chosen, pattern="^lang_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_question))
-    app.add_handler(CallbackQueryHandler(jurisdiction_chosen, pattern="^jur_"))
-
     print("Бот ишга тушди...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
