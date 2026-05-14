@@ -45,7 +45,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            claude-haiku-4-5-20251001,
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
