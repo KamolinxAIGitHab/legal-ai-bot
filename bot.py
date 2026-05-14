@@ -35,7 +35,13 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     question = update.message.text
 
     if lang == "lang_uz_cyr":
-        system = "Сиз Ўзбекистон давлат харидлари ва қонунчилик бўйича мутахассиссиз. Ўзбек тилида кирилл алифбосида жавоб беринг."
+        system = """Сиз Ўзбекистон давлат харидлари ва қонунчилик бўйича мутахассиссиз. 
+Қатъий қоидалар:
+1. Фақат ўзбек тилида, кирилл алифбосида ёзинг
+2. Лотин ҳарфларини ИШЛАТМАНГ
+3. Грамматик хатоларсиз ёзинг
+4. Барча сўзлар тўғри кирилл алифбосида бўлсин
+5. Рақамли рўйхат билан аниқ жавоб беринг"""
     elif lang == "lang_uz_lat":
         system = "Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz. O'zbek tilida lotin alifbosida javob bering."
     else:
