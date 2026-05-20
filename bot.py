@@ -80,7 +80,7 @@ Qoidalar:
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-5",  # ✅ ЯНГИЛАНДИ
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
