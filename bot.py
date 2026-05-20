@@ -1,11 +1,11 @@
 import os
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters,
 )
 import anthropic
-
 
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
@@ -29,6 +29,14 @@ async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
     )
 
+def clean_markdown(text):
+    text = re.sub(r'#{1,6}\s?', '', text)
+    text = text.replace("**", "").replace("__", "")
+    text = text.replace("*", "").replace("_", "")
+    text = text.replace("`", "")
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = context.user_data.get("lang", "lang_uz_cyr")
     question = update.message.text
@@ -41,25 +49,25 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 3. Грамматик хатоларсиз ёзинг
 4. Барча сўзлар тўғри кирилл алифбосида бўлсин
 5. Рақамли рўйхат билан аниқ жавоб беринг
-6. Markdown белгиларини ИШЛАТМАНГ: ## ** __ -- беkor
+6. Markdown белгиларини ИШЛАТМАНГ
 7. Оддий текст форматида ёзинг
-8. Сарлавҳаларни ЙИРИк ҲАРФЛАР билан ажратинг"""
+8. Номаълум бўлса — "Аниқ маълумот учун расмий манбага мурожаат қилинг" денг"""
 
     elif lang == "lang_uz_lat":
         system = """Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz.
 Qoidalar:
 1. O'zbek tilida lotin alifbosida javob bering
-2. Markdown belgilarini ISHLATMANG: ## ** __ --
+2. Markdown belgilarini ISHLATMANG
 3. Oddiy tekst formatida yozing
-4. Sarlavhalarni KATTA HARFLAR bilan ajrating"""
+4. Noma'lum bo'lsa — "Aniq ma'lumot uchun rasmiy manbaga murojaat qiling" deng"""
 
     else:
         system = """Вы эксперт по государственным закупкам и законодательству Узбекистана.
 Правила:
 1. Отвечайте на русском языке
-2. НЕ используйте Markdown: ## ** __ --
+2. НЕ используйте Markdown
 3. Пишите обычным текстом
-4. Заголовки выделяйте ЗАГЛАВНЫМИ БУКВАМИ"""
+4. Если не уверены — напишите "Обратитесь к официальному источнику""""
 
     await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
 
@@ -77,14 +85,7 @@ Qoidalar:
             system=system,
             messages=[{"role": "user", "content": question}]
         )
-        answer = message.content[0].text
-        # Markdown belgilarini tozalash
-        import re
-        answer = answer.replace("## ", "").replace("### ", "")
-        answer = answer.replace("##", "").replace("###", "")
-        answer = answer.replace("**", "").replace("__", "")
-        answer = answer.replace("`", "")
-        answer = re.sub(r'\n{3,}', '\n\n', answer).strip()
+        answer = clean_markdown(message.content[0].text)
         await update.message.reply_text(
             f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
         )
