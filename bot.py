@@ -33,24 +33,40 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     question = update.message.text
 
     if lang == "lang_uz_cyr":
-        system = """Сиз Ўзбекистон давлат харидлари ва қонунчилик бўйича мутахассиссиз. 
+        system = """Сиз Ўзбекистон давлат харидлари ва қонунчилик бўйича мутахассиссиз.
 Қатъий қоидалар:
 1. Фақат ўзбек тилида, кирилл алифбосида ёзинг
 2. Лотин ҳарфларини ИШЛАТМАНГ
 3. Грамматик хатоларсиз ёзинг
 4. Барча сўзлар тўғри кирилл алифбосида бўлсин
-5. Рақамли рўйхат билан аниқ жавоб беринг"""
+5. Рақамли рўйхат билан аниқ жавоб беринг
+6. Markdown белгиларини ИШЛАТМАНГ: ## ** __ -- беkor
+7. Оддий текст форматида ёзинг
+8. Сарлавҳаларни ЙИРИк ҲАРФЛАР билан ажратинг"""
+
     elif lang == "lang_uz_lat":
-        system = "Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz. O'zbek tilida lotin alifbosida javob bering."
+        system = """Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz.
+Qoidalar:
+1. O'zbek tilida lotin alifbosida javob bering
+2. Markdown belgilarini ISHLATMANG: ## ** __ --
+3. Oddiy tekst formatida yozing
+4. Sarlavhalarni KATTA HARFLAR bilan ajrating"""
+
     else:
-        system = "Вы эксперт по государственным закупкам и законодательству Узбекистана. Отвечайте на русском языке."
+        system = """Вы эксперт по государственным закупкам и законодательству Узбекистана.
+Правила:
+1. Отвечайте на русском языке
+2. НЕ используйте Markdown: ## ** __ --
+3. Пишите обычным текстом
+4. Заголовки выделяйте ЗАГЛАВНЫМИ БУКВАМИ"""
 
     await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
 
     try:
-        # API key tekshiruv
         if not CLAUDE_API_KEY:
-            await update.message.reply_text("❌ CLAUDE_API_KEY топилмади. Railway Variables ni tekshiring.")
+            await update.message.reply_text(
+                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
+            )
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
@@ -61,16 +77,24 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages=[{"role": "user", "content": question}]
         )
         answer = message.content[0].text
-        await update.message.reply_text(f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.")
+        await update.message.reply_text(
+            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
+        )
 
     except anthropic.AuthenticationError:
-        await update.message.reply_text("❌ API калит нотўғри. CLAUDE_API_KEY ni tekshiring.")
+        await update.message.reply_text(
+            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
+        )
     except anthropic.RateLimitError:
-        await update.message.reply_text("❌ API лимити тугади. Кейинроқ уриниб кўринг.")
+        await update.message.reply_text(
+            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
+        )
     except Exception as e:
         print(f"XATO TURI: {type(e).__name__}")
         print(f"XATO MATNI: {e}")
-        await update.message.reply_text(f"❌ Хато: {type(e).__name__}: {str(e)[:200]}")
+        await update.message.reply_text(
+            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
+        )
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
