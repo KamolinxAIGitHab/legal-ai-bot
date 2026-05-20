@@ -11,6 +11,33 @@ import anthropic
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
+LOCALIZED_MESSAGES = {
+    "lang_uz_cyr": {
+        "wait": "⏳ Жавоб тайёрланмоқда...",
+        "disclaimer": "⚠️ Жавоблар умумий ва таълимий мақсадда.",
+        "err_no_api_key": "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг.",
+        "err_auth": "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг.",
+        "err_rate_limit": "❌ API лимити тугади. Кейинроқ уриниб кўринг.",
+        "err_generic": "❌ Хато: {type}: {msg}",
+    },
+    "lang_uz_lat": {
+        "wait": "⏳ Javob tayyorlanmoqda...",
+        "disclaimer": "⚠️ Javoblar umumiy va ta'limiy maqsadda.",
+        "err_no_api_key": "❌ CLAUDE_API_KEY topilmadi. Railway Variables ni tekshiring.",
+        "err_auth": "❌ API kalit noto'g'ri. CLAUDE_API_KEY ni tekshiring.",
+        "err_rate_limit": "❌ API limiti tugadi. Keyinroq urinib ko'ring.",
+        "err_generic": "❌ Xato: {type}: {msg}",
+    },
+    "lang_ru": {
+        "wait": "⏳ Ответ готовится...",
+        "disclaimer": "⚠️ Ответы носят ознакомительный характер.",
+        "err_no_api_key": "❌ CLAUDE_API_KEY не найден. Проверьте Railway Variables.",
+        "err_auth": "❌ Неверный API ключ. Проверьте CLAUDE_API_KEY.",
+        "err_rate_limit": "❌ Лимит API исчерпан. Попробуйте позже.",
+        "err_generic": "❌ Ошибка: {type}: {msg}",
+    },
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
@@ -40,6 +67,7 @@ def clean_markdown(text):
 
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = context.user_data.get("lang", "lang_uz_cyr")
+    msg_set = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
     question = update.message.text
 
     if lang == "lang_uz_cyr":
@@ -68,15 +96,14 @@ Qoidalar:
 1. Отвечайте на русском языке
 2. НЕ используйте Markdown
 3. Пишите обычным текстом
-4. Если не уверены — напишите "Обратитесь к официальному источнику""""
+4. Если не уверены — напишите "Обратитесь к официальному источнику\""""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    status_msg = await update.message.reply_text(msg_set["wait"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await status_msg.edit_text(msg_set["err_no_api_key"])
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
@@ -87,23 +114,19 @@ Qoidalar:
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
+        await status_msg.edit_text(
+            f"🤖 {answer}\n\n{msg_set['disclaimer']}"
         )
 
     except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
+        await status_msg.edit_text(msg_set["err_auth"])
     except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
+        await status_msg.edit_text(msg_set["err_rate_limit"])
     except Exception as e:
         print(f"XATO TURI: {type(e).__name__}")
         print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
+        await status_msg.edit_text(
+            msg_set["err_generic"].format(type=type(e).__name__, msg=str(e)[:200])
         )
 
 def main():
