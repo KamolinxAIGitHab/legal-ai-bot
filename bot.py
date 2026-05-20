@@ -9,8 +9,6 @@ import anthropic
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
-client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
@@ -50,6 +48,12 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
 
     try:
+        # API key tekshiruv
+        if not CLAUDE_API_KEY:
+            await update.message.reply_text("❌ CLAUDE_API_KEY топилмади. Railway Variables ni tekshiring.")
+            return
+
+        client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
@@ -58,8 +62,15 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         answer = message.content[0].text
         await update.message.reply_text(f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.")
+
+    except anthropic.AuthenticationError:
+        await update.message.reply_text("❌ API калит нотўғри. CLAUDE_API_KEY ni tekshiring.")
+    except anthropic.RateLimitError:
+        await update.message.reply_text("❌ API лимити тугади. Кейинроқ уриниб кўринг.")
     except Exception as e:
-        await update.message.reply_text("❌ Хато юз берди. Илтимос, қайта уриниб кўринг.")
+        print(f"XATO TURI: {type(e).__name__}")
+        print(f"XATO MATNI: {e}")
+        await update.message.reply_text(f"❌ Хато: {type(e).__name__}: {str(e)[:200]}")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
