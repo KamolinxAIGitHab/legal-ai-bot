@@ -78,6 +78,13 @@ Qoidalar:
             messages=[{"role": "user", "content": question}]
         )
         answer = message.content[0].text
+        # Markdown belgilarini tozalash
+        import re
+        answer = answer.replace("## ", "").replace("### ", "")
+        answer = answer.replace("##", "").replace("###", "")
+        answer = answer.replace("**", "").replace("__", "")
+        answer = answer.replace("`", "")
+        answer = re.sub(r'\n{3,}', '\n\n', answer).strip()
         await update.message.reply_text(
             f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
         )
