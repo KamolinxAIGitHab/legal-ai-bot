@@ -52,7 +52,7 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 5. Рақамли рўйхат билан аниқ жавоб беринг
 6. Markdown белгиларини ИШЛАТМАНГ
 7. Оддий текст форматида ёзинг
-8. Номаълум бўлса — "Аниқ маълумот учун расмий манбага мурожаат қилинг" денг"""
+8. Номаълум бўлса — расмий манбага мурожаат қилинг денг"""
 
     elif lang == "lang_uz_lat":
         system = """Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz.
@@ -60,7 +60,7 @@ Qoidalar:
 1. O'zbek tilida lotin alifbosida javob bering
 2. Markdown belgilarini ISHLATMANG
 3. Oddiy tekst formatida yozing
-4. Noma'lum bo'lsa — "Aniq ma'lumot uchun rasmiy manbaga murojaat qiling" deng"""
+4. Noma'lum bo'lsa — rasmiy manbaga murojaat qiling deng"""
 
     else:
         system = """Вы эксперт по государственным закупкам и законодательству Узбекистана.
@@ -68,7 +68,7 @@ Qoidalar:
 1. Отвечайте на русском языке
 2. НЕ используйте Markdown
 3. Пишите обычным текстом
-4. Если не уверены — напишите "Обратитесь к официальному источнику""""
+4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
     await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
 
@@ -81,7 +81,7 @@ Qoidalar:
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5",  # ✅ ЯНГИЛАНДИ
+            model="claude-sonnet-4-5",
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
