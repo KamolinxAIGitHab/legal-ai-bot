@@ -70,13 +70,13 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    LOCALIZED_MESSAGES = {
-        "lang_uz_cyr": {"wait": "⏳ Жавоб тайёрланмоқда...", "footer": "⚠️ Жавоблар умумий ва таълимий мақсадда.", "err": "❌ Хато юз берди."},
-        "lang_uz_lat": {"wait": "⏳ Javob tayyorlanmoqda...", "footer": "⚠️ Javoblar umumiy va ta'limiy maqsadda.", "err": "❌ Xato yuz berdi."},
-        "lang_ru": {"wait": "⏳ Ответ готовится...", "footer": "⚠️ Ответы носят ознакомительный характер.", "err": "❌ Произошла ошибка."}
-    }
-    texts = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
-    status_msg = await update.message.reply_text(texts["wait"])
+    wait_text = {
+        "lang_uz_cyr": "⏳ Жавоб тайёрланмоқда...",
+        "lang_uz_lat": "⏳ Javob tayyorlanmoqda...",
+        "lang_ru": "⏳ Ответ готовится..."
+    }.get(lang, "⏳ Жавоб тайёрланмоқда...")
+
+    status_msg = await update.message.reply_text(wait_text)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
 
     try:
@@ -92,13 +92,25 @@ Qoidalar:
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await status_msg.edit_text(f"🤖 {answer}\n\n{texts['footer']}")
+        footer = {
+            "lang_uz_cyr": "⚠️ Жавоблар умумий мақсадда.",
+            "lang_uz_lat": "⚠️ Javoblar umumiy maqsadda.",
+            "lang_ru": "⚠️ Ответы носят ознакомительный характер."
+        }.get(lang, "⚠️ Жавоблар умумий мақсадда.")
+        await status_msg.edit_text(f"🤖 {answer}\n\n{footer}")
 
+    except anthropic.AuthenticationError:
+        await status_msg.edit_text("❌ API error.")
     except anthropic.RateLimitError:
-        await status_msg.edit_text("❌ API limit reached. Try later.")
+        await status_msg.edit_text("❌ Rate limit.")
     except Exception as e:
         print(f"XATO: {e}")
-        await status_msg.edit_text(texts["err"])
+        err_msg = {
+            "lang_uz_cyr": "❌ Хато юз берди.",
+            "lang_uz_lat": "❌ Xato yuz berdi.",
+            "lang_ru": "❌ Произошла ошибка."
+        }.get(lang, "❌ Хато юз берди.")
+        await status_msg.edit_text(err_msg)
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
