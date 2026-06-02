@@ -18,7 +18,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Русский", callback_data="lang_ru")],
     ]
     await update.message.reply_text(
-        "Илтимос, тилни танланг:",
+        "Илтимос, тилни танланг / Iltimos, tilni tanlang / Пожалуйста, выберите язык:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -70,13 +70,18 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    wait_text = {
+        "lang_uz_cyr": "⏳ Жавоб тайёрланмоқда...",
+        "lang_uz_lat": "⏳ Javob tayyorlanmoqda...",
+        "lang_ru": "⏳ Ответ готовится..."
+    }.get(lang, "⏳ Жавоб тайёрланмоқда...")
+
+    status_msg = await update.message.reply_text(wait_text)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await status_msg.edit_text("❌ CLAUDE_API_KEY not found.")
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
@@ -87,24 +92,25 @@ Qoidalar:
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        footer = {
+            "lang_uz_cyr": "⚠️ Жавоблар умумий мақсадда.",
+            "lang_uz_lat": "⚠️ Javoblar umumiy maqsadda.",
+            "lang_ru": "⚠️ Ответы носят ознакомительный характер."
+        }.get(lang, "⚠️ Жавоблар умумий мақсадда.")
+        await status_msg.edit_text(f"🤖 {answer}\n\n{footer}")
 
     except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
+        await status_msg.edit_text("❌ API error.")
     except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
+        await status_msg.edit_text("❌ Rate limit.")
     except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        print(f"XATO: {e}")
+        err_msg = {
+            "lang_uz_cyr": "❌ Хато юз берди.",
+            "lang_uz_lat": "❌ Xato yuz berdi.",
+            "lang_ru": "❌ Произошла ошибка."
+        }.get(lang, "❌ Хато юз берди.")
+        await status_msg.edit_text(err_msg)
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
