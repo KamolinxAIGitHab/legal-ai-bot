@@ -1,2 +1,5 @@
 python-telegram-bot==22.7
 anthropic
+SpeechRecognition
+pydub
+static-ffmpeg
