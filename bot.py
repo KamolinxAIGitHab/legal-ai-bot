@@ -1,5 +1,12 @@
 import os
 import re
+import io
+import asyncio
+import speech_recognition as sr
+from pydub import AudioSegment
+import static_ffmpeg
+
+static_ffmpeg.add_paths()
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -81,7 +88,7 @@ Qoidalar:
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
@@ -106,11 +113,77 @@ Qoidalar:
             f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
         )
 
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = context.user_data.get("lang", "lang_uz_cyr")
+
+    wait_msg = await update.message.reply_text("⏳ Овозли хабар юкланмоқда...")
+
+    try:
+        voice_file = await update.message.voice.get_file()
+        voice_data = await voice_file.download_as_bytearray()
+
+        # Convert OGG to WAV
+        await wait_msg.edit_text("⏳ Овозни қайта ишлаш...")
+        ogg_io = io.BytesIO(voice_data)
+        audio = await asyncio.to_thread(AudioSegment.from_file, ogg_io, format="ogg")
+        wav_io = io.BytesIO()
+        await asyncio.to_thread(audio.export, wav_io, format="wav")
+        wav_io.seek(0)
+
+        # Transcribe
+        await wait_msg.edit_text("⏳ Матнга айлантириш...")
+        recognizer = sr.Recognizer()
+
+        # Determine transcription language
+        stt_lang = "uz-UZ"
+        if lang == "lang_ru":
+            stt_lang = "ru-RU"
+
+        with sr.AudioFile(wav_io) as source:
+            audio_data = recognizer.record(source)
+            text = await asyncio.to_thread(recognizer.recognize_google, audio_data, language=stt_lang)
+
+        await wait_msg.edit_text("⏳ Таҳлил қилинмоқда...")
+
+        if lang == "lang_uz_cyr":
+            system = """Сиз шахсий ёрдамчисиз. Овозли хабар матнини таҳлил қилинг ва:
+1. Хабар турини аниқланг (харажат, режа, эслатма, ғоя ва ҳ.к.).
+2. Муҳим маълумотларни ажратиб кўрсатинг (сумма, вақт, макон).
+3. Қисқа ва тушунарли хулоса беринг.
+Фақат кирилл алифбосида жавоб беринг. Markdown ишлатманг."""
+        elif lang == "lang_uz_lat":
+            system = """Siz shaxsiy yordamchisiz. Ovozli xabar matnini tahlil qiling va:
+1. Xabar turini aniqlang (xarajat, reja, eslatma, g'oya va h.k.).
+2. Muhim ma'lumotlarni ajratib ko'rsating (summa, vaqt, makon).
+3. Qisqa va tushunarli xulosa bering.
+Faqat lotin alifbosida javob bering. Markdown ishlatmang."""
+        else:
+            system = """Вы личный помощник. Проанализируйте текст голосового сообщения и:
+1. Определите тип сообщения (расход, план, заметка, идея и т.д.).
+2. Выделите важные детали (сумма, время, место).
+3. Дайте краткий и понятный итог.
+Не используйте Markdown."""
+
+        client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1024,
+            system=system,
+            messages=[{"role": "user", "content": f"Матн: {text}"}]
+        )
+        answer = clean_markdown(message.content[0].text)
+
+        await wait_msg.edit_text(f"📝 Текст: {text}\n\n🤖 Таҳлил:\n{answer}")
+
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Хато: {str(e)}")
+
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(language_chosen, pattern="^lang_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_question))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     print("Бот ишга тушди...")
     app.run_polling()
 
