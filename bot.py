@@ -11,6 +11,30 @@ import anthropic
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
+LOCALIZED_MESSAGES = {
+    "lang_uz_cyr": {
+        "wait": "⏳ Жавоб тайёрланмоқда...",
+        "error_api": "❌ CLAUDE_API_KEY топилмади.",
+        "error_auth": "❌ API калит нотўғри.",
+        "error_limit": "❌ API лимити тугади.",
+        "error_gen": "❌ Хато юз берди:",
+    },
+    "lang_uz_lat": {
+        "wait": "⏳ Javob tayyorlanmoqda...",
+        "error_api": "❌ CLAUDE_API_KEY topilmadi.",
+        "error_auth": "❌ API kalit noto'g'ri.",
+        "error_limit": "❌ API limiti tugadi.",
+        "error_gen": "❌ Xato yuz berdi:",
+    },
+    "lang_ru": {
+        "wait": "⏳ Ответ готовится...",
+        "error_api": "❌ CLAUDE_API_KEY не найден.",
+        "error_auth": "❌ Неверный API ключ.",
+        "error_limit": "❌ Лимит API исчерпан.",
+        "error_gen": "❌ Произошла ошибка:",
+    },
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
@@ -70,41 +94,32 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    msg = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action='typing')
+    wait_msg = await update.message.reply_text(msg["wait"])
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await wait_msg.edit_text(msg["error_api"])
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-        message = client.messages.create(
-            model="claude-sonnet-4-5",
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
         )
-        answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        answer = clean_markdown(response.content[0].text)
+        await wait_msg.edit_text(f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.")
 
     except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
+        await wait_msg.edit_text(msg["error_auth"])
     except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
+        await wait_msg.edit_text(msg["error_limit"])
     except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        print(f"XATO: {e}")
+        await wait_msg.edit_text(f"{msg['error_gen']} {type(e).__name__}")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
