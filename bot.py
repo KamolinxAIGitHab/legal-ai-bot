@@ -11,6 +11,12 @@ import anthropic
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
+LOCALIZED_MESSAGES = {
+    "lang_uz_cyr": {"wait": "⏳ Жавоб тайёрланмоқда...", "disclaimer": "⚠️ Жавоблар умумий мақсадда."},
+    "lang_uz_lat": {"wait": "⏳ Javob tayyorlanmoqda...", "disclaimer": "⚠️ Javoblar umumiy maqsadda."},
+    "lang_ru": {"wait": "⏳ Ответ готовится...", "disclaimer": "⚠️ Ответы носят ознакомительный характер."}
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
@@ -70,41 +76,25 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    wait_msg = await update.message.reply_text(LOCALIZED_MESSAGES[lang]["wait"])
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await wait_msg.edit_text("❌ CLAUDE_API_KEY not found.")
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
-            system=system,
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1024, system=system,
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        await wait_msg.edit_text(f"🤖 {answer}\n\n{LOCALIZED_MESSAGES[lang]['disclaimer']}")
 
-    except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
-    except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
     except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        await wait_msg.edit_text(f"❌ Error: {type(e).__name__}")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
