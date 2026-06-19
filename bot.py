@@ -2,6 +2,7 @@ import os
 import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters,
@@ -11,6 +12,12 @@ import anthropic
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
+LOCALIZED_MESSAGES = {
+    "lang_uz_cyr": {"chosen": "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:", "wait": "⏳ Жавоб тайёрланмоқда...", "disclaimer": "⚠️ Жавоблар умумий ва таълимий мақсадда.", "error_api": "❌ CLAUDE_API_KEY топилмади.", "error_auth": "❌ API калит нотўғри.", "error_limit": "❌ API лимити тугади. Кейинроқ уриниб кўринг.", "error_gen": "❌ Хато юз берди."},
+    "lang_uz_lat": {"chosen": "✅ Til tanlandi!\n\nDavlat xaridlari, qonunchilik yoki moliya bo'yicha savolingizni yozing:", "wait": "⏳ Javob tayyorlanmoqda...", "disclaimer": "⚠️ Javoblar umumiy va ta'limiy maqsadda.", "error_api": "❌ CLAUDE_API_KEY topilmadi.", "error_auth": "❌ API kalit noto'g'ri.", "error_limit": "❌ API limiti tugadi. Keyinroq urinib ko'ring.", "error_gen": "❌ Xato yuz berdi."},
+    "lang_ru": {"chosen": "✅ Язык выбран!\n\nЗадайте свой вопрос по госзакупкам, законодательству или финансам:", "wait": "⏳ Ответ готовится...", "disclaimer": "⚠️ Ответы носят общий и образовательный характер.", "error_api": "❌ CLAUDE_API_KEY не найден.", "error_auth": "❌ Неверный ключ API.", "error_limit": "❌ Лимит API исчерпан. Попробуйте позже.", "error_gen": "❌ Произошла ошибка."}
+}
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Ўзбекча (кирилл)", callback_data="lang_uz_cyr")],
@@ -18,17 +25,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Русский", callback_data="lang_ru")],
     ]
     await update.message.reply_text(
-        "Илтимос, тилни танланг:",
+        "Илтимос, тилни танланг / Iltimos, tilni tanlang / Пожалуйста, выберите язык:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lang"] = query.data
-    await query.edit_message_text(
-        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
-    )
+    lang = query.data
+    context.user_data["lang"] = lang
+    msg = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])["chosen"]
+    await query.edit_message_text(msg)
 
 def clean_markdown(text):
     text = re.sub(r'#{1,6}\s?', '', text)
@@ -70,13 +77,13 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    msgs = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
+    status_msg = await update.message.reply_text(msgs["wait"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await status_msg.edit_text(msgs["error_api"])
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
@@ -87,24 +94,15 @@ Qoidalar:
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        await status_msg.edit_text(f"🤖 {answer}\n\n{msgs['disclaimer']}")
 
     except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
+        await status_msg.edit_text(msgs["error_auth"])
     except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
+        await status_msg.edit_text(msgs["error_limit"])
     except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        print(f"XATO: {e}")
+        await status_msg.edit_text(msgs["error_gen"])
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
