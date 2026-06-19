@@ -1,15 +1,140 @@
 import os
 import re
+import json
+import database
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters,
 )
+from telegram.constants import ChatAction
 import anthropic
+from openai import OpenAI
 
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+LOGGING_SYSTEM_PROMPT = """You are a trilingual assistant (Uzbek Cyrillic, Uzbek Latin, Russian) that categorizes and structures personal logs.
+Extract information from the text and return a JSON object.
+Categories:
+- expense: Money spent (amount, currency, item)
+- task: Something to do
+- note: Information to remember
+- reminder: Something for a specific time (if mentioned)
+
+JSON format:
+{
+  "category": "expense" | "task" | "note" | "reminder",
+  "data": { ... relevant fields ... },
+  "summary": "Short trilingual summary"
+}
+
+If you are not sure, use "note". Return ONLY the JSON object, no other text."""
+
+LOCALIZED_MESSAGES = {
+    "lang_uz_cyr": {
+        "chosen": "✅ Тил танланди!",
+        "welcome": "Харажатлар, вазифалар ёки қайдларни ёзинг ёки овозли хабар юборинг:",
+        "wait": "⏳ Ишланяпти...",
+        "voice_processing": "🎤 Овоз эшитилмоқда...",
+        "categorizing": "🧠 Таҳлил қилинмоқда...",
+        "saved": "✅ Сақланди: {summary}",
+        "history_header": "📜 Охирги қайдларингиз:",
+        "stats_empty": "📭 Ҳозирча қайдлар йўқ.",
+        "error_api": "❌ API калит топилмади.",
+        "error_no_key": "❌ Овозли хабар учун OpenAI API калити созланмаган.",
+        "error_gen": "❌ Хатолик юз берди."
+    },
+    "lang_uz_lat": {
+        "chosen": "✅ Til tanlandi!",
+        "welcome": "Xarajatlar, vazifalar yoki qaydlarni yozing yoki ovozli xabar yuboring:",
+        "wait": "⏳ Ishlanyapti...",
+        "voice_processing": "🎤 Ovoz eshitilmoqda...",
+        "categorizing": "🧠 Tahlil qilinmoqda...",
+        "saved": "✅ Saqlandi: {summary}",
+        "history_header": "📜 Oxirgi qaydlaringiz:",
+        "stats_empty": "📭 Hozircha qaydlar yo'q.",
+        "error_api": "❌ API kalit topilmadi.",
+        "error_no_key": "❌ Ovozli xabar uchun OpenAI API kaliti sozlanmagan.",
+        "error_gen": "❌ Xatolik yuz berdi."
+    },
+    "lang_ru": {
+        "chosen": "✅ Язык выбран!",
+        "welcome": "Запишите расходы, задачи или заметки текстом или голосом:",
+        "wait": "⏳ В работе...",
+        "voice_processing": "🎤 Слушаю голос...",
+        "categorizing": "🧠 Анализирую...",
+        "saved": "✅ Сохранено: {summary}",
+        "history_header": "📜 Ваши последние записи:",
+        "stats_empty": "📭 Записей пока нет.",
+        "error_api": "❌ API ключ не найден.",
+        "error_no_key": "❌ OpenAI API ключ не настроен для голоса.",
+        "error_gen": "❌ Произошла ошибка."
+    }
+}
+
+def extract_json(text):
+    try:
+        # Try finding json block
+        match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        return json.loads(text)
+    except Exception as e:
+        print(f"JSON parsing error: {e}")
+        return None
+
+async def process_input_text(text, user_id, msgs, status_msg=None):
+    if not CLAUDE_API_KEY:
+        error_text = msgs["error_api"]
+        if status_msg: await status_msg.edit_text(error_text)
+        return False
+
+    try:
+        client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1000,
+            system=LOGGING_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": text}]
+        )
+
+        result_json = extract_json(message.content[0].text)
+        if not result_json:
+            result_json = {"category": "note", "summary": text[:50], "data": {}}
+
+        category = result_json.get("category", "note")
+        summary = result_json.get("summary", text[:50])
+
+        database.add_log(user_id, category, text, result_json)
+
+        final_text = msgs["saved"].format(summary=summary)
+        if status_msg:
+            await status_msg.edit_text(final_text)
+        return True
+
+    except Exception as e:
+        print(f"AI error: {e}")
+        error_text = f"🤖 {text}\n\n⚠️ {msgs['error_gen']}"
+        if status_msg: await status_msg.edit_text(error_text)
+        return False
+
+async def transcribe_voice(file_path):
+    if not OPENAI_API_KEY:
+        return None
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        with open(file_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
+        return transcript.text
+    except Exception as e:
+        print(f"Transcription error: {e}")
+        return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -25,91 +150,101 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lang"] = query.data
+    lang = query.data
+    context.user_data["lang"] = lang
+    msgs = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
     await query.edit_message_text(
-        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
+        f"{msgs['chosen']}\n\n{msgs['welcome']}"
     )
-
-def clean_markdown(text):
-    text = re.sub(r'#{1,6}\s?', '', text)
-    text = text.replace("**", "").replace("__", "")
-    text = text.replace("*", "").replace("_", "")
-    text = text.replace("`", "")
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip()
 
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = context.user_data.get("lang", "lang_uz_cyr")
-    question = update.message.text
+    msgs = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
+    text = update.message.text
 
-    if lang == "lang_uz_cyr":
-        system = """Сиз Ўзбекистон давлат харидлари ва қонунчилик бўйича мутахассиссиз.
-Қатъий қоидалар:
-1. Фақат ўзбек тилида, кирилл алифбосида ёзинг
-2. Лотин ҳарфларини ИШЛАТМАНГ
-3. Грамматик хатоларсиз ёзинг
-4. Барча сўзлар тўғри кирилл алифбосида бўлсин
-5. Рақамли рўйхат билан аниқ жавоб беринг
-6. Markdown белгиларини ИШЛАТМАНГ
-7. Оддий текст форматида ёзинг
-8. Номаълум бўлса — расмий манбага мурожаат қилинг денг"""
+    status_msg = await update.message.reply_text(msgs["wait"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
-    elif lang == "lang_uz_lat":
-        system = """Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz.
-Qoidalar:
-1. O'zbek tilida lotin alifbosida javob bering
-2. Markdown belgilarini ISHLATMANG
-3. Oddiy tekst formatida yozing
-4. Noma'lum bo'lsa — rasmiy manbaga murojaat qiling deng"""
+    await process_input_text(text, update.effective_user.id, msgs, status_msg)
 
-    else:
-        system = """Вы эксперт по государственным закупкам и законодательству Узбекистана.
-Правила:
-1. Отвечайте на русском языке
-2. НЕ используйте Markdown
-3. Пишите обычным текстом
-4. Если не уверены — напишите: Обратитесь к официальному источнику"""
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = context.user_data.get("lang", "lang_uz_cyr")
+    msgs = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    if not OPENAI_API_KEY:
+        await update.message.reply_text(msgs["error_no_key"])
+        return
 
-    try:
-        if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
-            return
+    status_msg = await update.message.reply_text(msgs["voice_processing"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
-        client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-        message = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1024,
-            system=system,
-            messages=[{"role": "user", "content": question}]
-        )
-        answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+    voice_file = await update.message.voice.get_file()
+    os.makedirs("temp", exist_ok=True)
+    file_path = f"temp/{voice_file.file_id}.ogg"
+    await voice_file.download_to_drive(file_path)
 
-    except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
-    except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
-    except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+    text = await transcribe_voice(file_path)
+    os.remove(file_path)
+
+    if not text:
+        await status_msg.edit_text(msgs["error_gen"])
+        return
+
+    await status_msg.edit_text(msgs["categorizing"])
+    await process_input_text(text, update.effective_user.id, msgs, status_msg)
+
+async def history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = context.user_data.get("lang", "lang_uz_cyr")
+    msgs = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
+
+    logs = database.get_recent_logs(update.effective_user.id)
+    if not logs:
+        await update.message.reply_text(msgs["stats_empty"])
+        return
+
+    text = f"{msgs['history_header']}\n\n"
+    for log in logs:
+        # log is a dict from database.py
+        category_icon = {
+            "expense": "💰",
+            "task": "✅",
+            "note": "📝",
+            "reminder": "⏰"
+        }.get(log["category"], "🔹")
+
+        try:
+            data = json.loads(log["structured_data"])
+            summary = data.get("summary", log["raw_text"][:50])
+        except:
+            summary = log["raw_text"][:50]
+
+        text += f"{category_icon} {summary}\n"
+
+    await update.message.reply_text(text)
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = context.user_data.get("lang", "lang_uz_cyr")
+    msgs = LOCALIZED_MESSAGES.get(lang, LOCALIZED_MESSAGES["lang_uz_cyr"])
+
+    raw_stats = database.get_stats(update.effective_user.id)
+    if not raw_stats:
+        await update.message.reply_text(msgs["stats_empty"])
+        return
+
+    text = "📊 Статистика:\n\n"
+    for cat, count in raw_stats:
+        text += f"{cat.capitalize()}: {count}\n"
+
+    await update.message.reply_text(text)
 
 def main():
+    database.init_db()
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("history", history))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CallbackQueryHandler(language_chosen, pattern="^lang_"))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_question))
     print("Бот ишга тушди...")
     app.run_polling()
