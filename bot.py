@@ -7,6 +7,13 @@ from telegram.ext import (
     MessageHandler, ContextTypes, filters,
 )
 import anthropic
+from telegram.constants import ChatAction
+
+L = {
+    "lang_uz_cyr": {"chosen": "✅ Тил танланди!\n\nСаволингизни ёзинг:", "wait": "⏳ Жавоб тайёрланмоқда...", "err": "❌ Хато юз берди."},
+    "lang_uz_lat": {"chosen": "✅ Til tanlandi!\n\nSavolingizni yozing:", "wait": "⏳ Javob tayyorlanmoqda...", "err": "❌ Xato yuz berdi."},
+    "lang_ru": {"chosen": "✅ Язык выбран!\n\nВведите ваш вопрос:", "wait": "⏳ Ответ готовится...", "err": "❌ Произошла ошибка."}
+}
 
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
@@ -18,17 +25,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Русский", callback_data="lang_ru")],
     ]
     await update.message.reply_text(
-        "Илтимос, тилни танланг:",
+        "Илтимос, тилни танланг / Iltimos, tilni tanlang / Пожалуйста, выберите язык:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lang"] = query.data
-    await query.edit_message_text(
-        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
-    )
+    lang = query.data
+    context.user_data["lang"] = lang
+    await query.edit_message_text(L.get(lang, L["lang_uz_cyr"])["chosen"])
 
 def clean_markdown(text):
     text = re.sub(r'#{1,6}\s?', '', text)
@@ -70,7 +76,8 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    await update.message.reply_text(L.get(lang, L["lang_uz_cyr"])["wait"])
 
     try:
         if not CLAUDE_API_KEY:
@@ -102,9 +109,7 @@ Qoidalar:
     except Exception as e:
         print(f"XATO TURI: {type(e).__name__}")
         print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        await update.message.reply_text(L.get(lang, L["lang_uz_cyr"])["err"])
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
