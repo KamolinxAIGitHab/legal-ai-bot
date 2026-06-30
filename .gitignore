@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+records.db
+test_records.db
+test_bot_logic.py
+voice_*.ogg
