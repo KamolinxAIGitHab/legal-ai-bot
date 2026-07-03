@@ -2,6 +2,7 @@ import os
 import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters,
@@ -10,6 +11,12 @@ import anthropic
 
 TOKEN = os.environ.get("TOKEN")
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
+
+L = {
+    "lang_uz_cyr": {"ok": "✅ Тил танланди!\n\nСаволингизни ёзинг:", "wait": "⏳ Жавоб тайёрланмоқда...", "bot": "🤖", "warn": "\n\n⚠️ Жавоблар умумий ва таълимий мақсадда.", "err": "❌ Хато юз берди."},
+    "lang_uz_lat": {"ok": "✅ Til tanlandi!\n\nSavolingizni yozing:", "wait": "⏳ Javob tayyorlanmoqda...", "bot": "🤖", "warn": "\n\n⚠️ Javoblar umumiy va ta'limiy maqsadda.", "err": "❌ Xato yuz berdi."},
+    "lang_ru": {"ok": "✅ Язык выбран!\n\nНапишите ваш вопрос:", "wait": "⏳ Ответ готовится...", "bot": "🤖", "warn": "\n\n⚠️ Ответы носят ознакомительный характер.", "err": "❌ Произошла ошибка."}
+}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -25,10 +32,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lang"] = query.data
-    await query.edit_message_text(
-        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
-    )
+    lang = query.data
+    context.user_data["lang"] = lang
+    await query.edit_message_text(L.get(lang, L["lang_uz_cyr"])["ok"])
 
 def clean_markdown(text):
     text = re.sub(r'#{1,6}\s?', '', text)
@@ -70,41 +76,28 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    texts = L.get(lang, L["lang_uz_cyr"])
+    status_msg = await update.message.reply_text(texts["wait"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await status_msg.edit_text("❌ CLAUDE_API_KEY error")
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        await status_msg.edit_text(f"{texts['bot']} {answer}{texts['warn']}")
 
-    except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
-    except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
     except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        print(f"XATO: {e}")
+        await status_msg.edit_text(texts["err"])
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
