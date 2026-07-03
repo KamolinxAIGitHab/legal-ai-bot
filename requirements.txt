@@ -1,2 +1,3 @@
 python-telegram-bot==22.7
-anthropic
+anthropic>=0.112.0
+imageio-ffmpeg
