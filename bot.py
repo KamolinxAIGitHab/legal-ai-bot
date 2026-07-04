@@ -2,6 +2,7 @@ import os
 import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters,
@@ -9,6 +10,27 @@ from telegram.ext import (
 import anthropic
 
 TOKEN = os.environ.get("TOKEN")
+
+L = {
+    "lang_uz_cyr": {
+        "ok": "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:",
+        "wait": "⏳ Жавоб тайёрланмоқда...",
+        "warn": "⚠️ Жавоблар умумий ва таълимий мақсадда.",
+        "err": "❌ Хатолик юз берди. Кейинроқ уриниб кўринг."
+    },
+    "lang_uz_lat": {
+        "ok": "✅ Til tanlandi!\n\nDavlat xaridlari, qonunchilik yoki moliya bo'yicha savolingizni yozing:",
+        "wait": "⏳ Javob tayyorlanmoqda...",
+        "warn": "⚠️ Javoblar umumiy va ta'limiy maqsadda.",
+        "err": "❌ Xatolik yuz berdi. Keyinroq urinib ko'ring."
+    },
+    "lang_ru": {
+        "ok": "✅ Язык выбран!\n\nВведите ваш вопрос по госзакупкам, законодательству или финансам:",
+        "wait": "⏳ Ответ готовится...",
+        "warn": "⚠️ Ответы носят общий и образовательный характер.",
+        "err": "❌ Произошла ошибка. Попробуйте позже."
+    }
+}
 CLAUDE_API_KEY = os.environ.get("CLAUDE_API_KEY")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18,17 +40,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Русский", callback_data="lang_ru")],
     ]
     await update.message.reply_text(
-        "Илтимос, тилни танланг:",
+        "Please choose a language / Iltimos, tilni tanlang / Пожалуйста, выберите язык:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lang"] = query.data
-    await query.edit_message_text(
-        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
-    )
+    lang = query.data
+    context.user_data["lang"] = lang
+    texts = L.get(lang, L["lang_uz_cyr"])
+    await query.edit_message_text(texts["ok"])
 
 def clean_markdown(text):
     text = re.sub(r'#{1,6}\s?', '', text)
@@ -40,6 +62,7 @@ def clean_markdown(text):
 
 async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = context.user_data.get("lang", "lang_uz_cyr")
+    texts = L.get(lang, L["lang_uz_cyr"])
     question = update.message.text
 
     if lang == "lang_uz_cyr":
@@ -53,7 +76,6 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 6. Markdown белгиларини ИШЛАТМАНГ
 7. Оддий текст форматида ёзинг
 8. Номаълум бўлса — расмий манбага мурожаат қилинг денг"""
-
     elif lang == "lang_uz_lat":
         system = """Siz O'zbekiston davlat xaridlari va qonunchilik bo'yicha mutaxasssissiz.
 Qoidalar:
@@ -61,7 +83,6 @@ Qoidalar:
 2. Markdown belgilarini ISHLATMANG
 3. Oddiy tekst formatida yozing
 4. Noma'lum bo'lsa — rasmiy manbaga murojaat qiling deng"""
-
     else:
         system = """Вы эксперт по государственным закупкам и законодательству Узбекистана.
 Правила:
@@ -70,41 +91,31 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    status_msg = await update.message.reply_text(texts["wait"])
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
     try:
         if not CLAUDE_API_KEY:
-            await update.message.reply_text(
-                "❌ CLAUDE_API_KEY топилмади. Railway Variables ни текширинг."
-            )
+            await status_msg.edit_text("❌ CLAUDE_API_KEY NOT FOUND")
             return
 
         client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        await status_msg.edit_text(f"🤖 {answer}\n\n{texts['warn']}")
 
     except anthropic.AuthenticationError:
-        await update.message.reply_text(
-            "❌ API калит нотўғри. CLAUDE_API_KEY ни текширинг."
-        )
+        await status_msg.edit_text("❌ API KEY ERROR")
     except anthropic.RateLimitError:
-        await update.message.reply_text(
-            "❌ API лимити тугади. Кейинроқ уриниб кўринг."
-        )
+        await status_msg.edit_text("❌ RATE LIMIT")
     except Exception as e:
-        print(f"XATO TURI: {type(e).__name__}")
-        print(f"XATO MATNI: {e}")
-        await update.message.reply_text(
-            f"❌ Хато: {type(e).__name__}: {str(e)[:200]}"
-        )
+        print(f"XATO: {e}")
+        await status_msg.edit_text(texts["err"])
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
