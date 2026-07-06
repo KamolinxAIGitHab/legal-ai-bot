@@ -2,6 +2,7 @@ import os
 import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, ContextTypes, filters,
@@ -25,10 +26,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["lang"] = query.data
-    await query.edit_message_text(
-        "✅ Тил танланди!\n\nДавлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:"
-    )
+    lang = query.data
+    context.user_data["lang"] = lang
+    msg = "✅ Тил танланди!" if lang == "lang_uz_cyr" else "✅ Til tanlandi!" if lang == "lang_uz_lat" else "✅ Язык выбран!"
+    await query.edit_message_text(f"{msg}\n\n" + (
+        "Давлат харидлари, қонунчилик ёки молия бўйича саволингизни ёзинг:" if lang == "lang_uz_cyr" else
+        "Davlat xaridlari, qonunchilik yoki moliya bo'yicha savolingizni yozing:" if lang == "lang_uz_lat" else
+        "Напишите ваш вопрос по госзакупкам, законодательству или финансам:"
+    ))
 
 def clean_markdown(text):
     text = re.sub(r'#{1,6}\s?', '', text)
@@ -70,7 +75,9 @@ Qoidalar:
 3. Пишите обычным текстом
 4. Если не уверены — напишите: Обратитесь к официальному источнику"""
 
-    await update.message.reply_text("⏳ Жавоб тайёрланмоқда...")
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    wait_msg = "⏳ Жавоб тайёрланмоқда..." if lang == "lang_uz_cyr" else "⏳ Javob tayyorlanmoqda..." if lang == "lang_uz_lat" else "⏳ Ответ готовится..."
+    status_msg = await update.message.reply_text(wait_msg)
 
     try:
         if not CLAUDE_API_KEY:
@@ -87,9 +94,8 @@ Qoidalar:
             messages=[{"role": "user", "content": question}]
         )
         answer = clean_markdown(message.content[0].text)
-        await update.message.reply_text(
-            f"🤖 {answer}\n\n⚠️ Жавоблар умумий ва таълимий мақсадда."
-        )
+        disclaimer = "⚠️ Жавоблар умумий ва таълимий мақсадда." if lang == "lang_uz_cyr" else "⚠️ Javoblar umumiy va ta'limiy maqsadda." if lang == "lang_uz_lat" else "⚠️ Ответы носят общий и ознакомительный характер."
+        await status_msg.edit_text(f"🤖 {answer}\n\n{disclaimer}")
 
     except anthropic.AuthenticationError:
         await update.message.reply_text(
